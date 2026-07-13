@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements_stt.txt \
     && rm /tmp/requirements_stt.txt \
     && pip cache purge 2>/dev/null || true
 
-# Pre-download Whisper large-v3
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3', device='cpu', compute_type='int8')"
+# Pre-download Whisper large-v3 weights only (cpu/int8 just for download, runtime uses CUDA)
+RUN python -c "from faster_whisper import WhisperModel; m = WhisperModel('large-v3', device='cpu', compute_type='int8'); del m"
 
 COPY handler_stt.py ./
 
