@@ -21,6 +21,7 @@ _s3_endpoint: Optional[str] = os.environ.get("BUCKET_ENDPOINT_URL")
 _s3_access_key: Optional[str] = os.environ.get("BUCKET_ACCESS_KEY_ID")
 _s3_secret_key: Optional[str] = os.environ.get("BUCKET_SECRET_ACCESS_KEY")
 S3_BUCKET_NAME: str = os.environ.get("BUCKET_NAME", "tts-outputs")
+S3_PUBLIC_URL: str = os.environ.get("BUCKET_PUBLIC_URL", "").rstrip("/")
 
 s3_client: Optional[Any] = None
 if _s3_endpoint and _s3_access_key and _s3_secret_key:
@@ -139,7 +140,11 @@ def upload_audio_to_s3(mp3_bytes: bytes, job_id: str) -> str:
         ACL="public-read",
     )
     print(f"worker-tts - Uploaded to S3: {s3_key}")
-    return s3_key
+
+    base_url = S3_PUBLIC_URL or _s3_endpoint.rstrip("/")
+    public_url = f"{base_url}/{S3_BUCKET_NAME}/{s3_key}"
+    print(f"worker-tts - Public URL: {public_url}")
+    return public_url
 
 
 def handler(job: dict) -> dict:
@@ -176,12 +181,12 @@ def handler(job: dict) -> dict:
         print(f"worker-tts - Generated {len(mp3_bytes)} bytes of MP3")
 
         if s3_client:
-            s3_key = upload_audio_to_s3(mp3_bytes, job_id)
+            public_url = upload_audio_to_s3(mp3_bytes, job_id)
             return {
                 "audio": {
                     "filename": "output.mp3",
-                    "type": "path",
-                    "data": s3_key,
+                    "type": "url",
+                    "data": public_url,
                 }
             }
         else:
