@@ -1,0 +1,7 @@
+runpod
+boto3
+TTS==0.22.0
+pydub
+soundfile
+numpy
+requests

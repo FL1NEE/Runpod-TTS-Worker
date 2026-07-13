@@ -1,0 +1,4 @@
+runpod
+boto3
+faster-whisper
+requests

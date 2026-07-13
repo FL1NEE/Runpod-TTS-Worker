@@ -1,0 +1,17 @@
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements_stt.txt /tmp/requirements_stt.txt
+RUN pip install --no-cache-dir -r /tmp/requirements_stt.txt \
+    && rm /tmp/requirements_stt.txt \
+    && pip cache purge 2>/dev/null || true
+
+# Pre-download Whisper large-v3
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3', device='cpu', compute_type='int8')"
+
+COPY handler_stt.py ./
+
+CMD ["python", "-u", "handler_stt.py"]
