@@ -8,7 +8,7 @@ ENV PYTORCH_ALLOC_CONF=expandable_segments:True
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+    ffmpeg espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements_tts.txt /tmp/requirements_tts.txt
@@ -16,8 +16,12 @@ RUN pip install --no-cache-dir -r /tmp/requirements_tts.txt \
     && rm /tmp/requirements_tts.txt \
     && pip cache purge 2>/dev/null || true
 
-# Pre-download XTTS v2 weights into image
-RUN python -c "from TTS.api import TTS; TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
+# Pre-download Kokoro model weights
+RUN python -c "\
+from kokoro import KPipeline; \
+for lc in ['a','b','e','f','h','i','p','j','z','k']: \
+    try: KPipeline(lang_code=lc); print(f'Downloaded: {lc}') \
+    except Exception as e: print(f'Skip {lc}: {e}')"
 
 COPY handler_tts.py ./
 
