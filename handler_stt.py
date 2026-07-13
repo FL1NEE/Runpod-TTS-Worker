@@ -6,6 +6,7 @@ import json
 import base64
 import tempfile
 import traceback
+import requests
 import boto3
 from botocore.config import Config as BotoConfig
 from faster_whisper import WhisperModel
@@ -13,7 +14,8 @@ from faster_whisper import WhisperModel
 _s3_endpoint: Optional[str] = os.environ.get("BUCKET_ENDPOINT_URL")
 _s3_access_key: Optional[str] = os.environ.get("BUCKET_ACCESS_KEY_ID")
 _s3_secret_key: Optional[str] = os.environ.get("BUCKET_SECRET_ACCESS_KEY")
-S3_BUCKET_NAME: str = os.environ.get("BUCKET_NAME", "tts-outputs")
+S3_BUCKET_NAME: str = os.environ.get("BUCKET_NAME", "aicaller")
+S3_PUBLIC_URL: str = os.environ.get("BUCKET_PUBLIC_URL", "").rstrip("/")
 
 s3_client: Optional[Any] = None
 if _s3_endpoint and _s3_access_key and _s3_secret_key:
@@ -24,7 +26,9 @@ if _s3_endpoint and _s3_access_key and _s3_secret_key:
         aws_secret_access_key=_s3_secret_key,
         config=BotoConfig(signature_version="s3v4"),
     )
-    print(f"worker-stt - S3 initialized (endpoint: {_s3_endpoint})")
+    print(f"worker-stt - S3 initialized (endpoint: {_s3_endpoint}, bucket: {S3_BUCKET_NAME})")
+else:
+    print("worker-stt - S3 not configured, result will be returned inline")
 
 WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL", "large-v3")
 COMPUTE_TYPE: str = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
@@ -103,6 +107,22 @@ def transcribe(audio_path: str, language: Optional[str], task: str, word_timesta
     }
 
 
+def upload_json_to_s3(result: dict, job_id: str) -> str:
+    s3_key = f"outputs/{job_id}/result.json"
+    body = json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+    s3_client.put_object(
+        Bucket=S3_BUCKET_NAME,
+        Key=s3_key,
+        Body=body,
+        ContentType="application/json",
+        ACL="public-read",
+    )
+    base_url = S3_PUBLIC_URL or _s3_endpoint.rstrip("/")
+    public_url = f"{base_url}/{S3_BUCKET_NAME}/{s3_key}"
+    print(f"worker-stt - JSON uploaded: {public_url}")
+    return public_url
+
+
 def handler(job: dict) -> dict:
     job_id: str = job.get("id", "UNKNOWN")
     print(f"worker-stt - handler called: job_id={job_id}", flush=True)
@@ -119,15 +139,13 @@ def handler(job: dict) -> dict:
             raw = validated["audio_b64"]
             b64_data = raw.split(",", 1)[1] if "," in raw else raw
             audio_bytes = base64.b64decode(b64_data)
-            suffix = ".wav"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 tmp.write(audio_bytes)
                 tmp_audio_path = tmp.name
             print(f"worker-stt - Audio from base64 ({len(audio_bytes)} bytes)")
 
         elif validated["audio_url"]:
-            import requests
-            resp = requests.get(validated["audio_url"], timeout=60)
+            resp = requests.get(validated["audio_url"], timeout=120)
             resp.raise_for_status()
             ext = os.path.splitext(validated["audio_url"].split("?")[0])[1] or ".wav"
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
@@ -144,6 +162,16 @@ def handler(job: dict) -> dict:
             vad_filter=validated["vad_filter"],
         )
         print(f"worker-stt - Done: lang={result['language']}, duration={result['duration']}s, segments={len(result['segments'])}")
+
+        if s3_client:
+            json_url = upload_json_to_s3(result, job_id)
+            return {
+                "result_url": json_url,
+                "text": result["text"],
+                "language": result["language"],
+                "duration": result["duration"],
+            }
+
         return result
 
     except Exception as e:

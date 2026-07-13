@@ -131,7 +131,7 @@ def upload_audio_to_s3(mp3_bytes: bytes, job_id: str) -> str:
     if not s3_client:
         raise RuntimeError("S3 not configured")
 
-    s3_key = f"tts/{job_id}/output.mp3"
+    s3_key = f"outputs/{job_id}/output.mp3"
     s3_client.put_object(
         Bucket=S3_BUCKET_NAME,
         Key=s3_key,
